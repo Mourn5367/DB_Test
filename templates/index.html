@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎮 LangChain TRPG System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            width: 95%;
+            max-width: 1000px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .status {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .game-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        .game-controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .game-id-input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .control-button {
+            padding: 10px 15px;
+            background: #10b981;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .control-button:hover {
+            background: #059669;
+        }
+
+        .control-button.danger {
+            background: #ef4444;
+        }
+
+        .control-button.danger:hover {
+            background: #dc2626;
+        }
+
+        .chat-container {
+            flex: 1;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8fafc;
+            scroll-behavior: smooth;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 #f1f5f9;
+        }
+
+        .messages::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .messages::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+
+        .messages::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        .messages::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 15px;
+            border-radius: 12px;
+            max-width: 80%;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            margin-left: auto;
+        }
+
+        .message.gm {
+            background: white;
+            border: 1px solid #e5e7eb;
+            margin-right: auto;
+        }
+
+        .message.system {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            margin: 0 auto;
+            text-align: center;
+            font-style: italic;
+        }
+
+        .options {
+            margin-top: 10px;
+        }
+
+        .option-button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 8px 12px;
+            background: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .option-button:hover {
+            background: #e5e7eb;
+        }
+
+        .input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+        }
+
+        .message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .message-input:focus {
+            border-color: #4f46e5;
+        }
+
+        .send-button {
+            background: linear-gradient(135deg, #4f46e5, #7c3aed);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .send-button:hover:not(:disabled) {
+            transform: scale(1.05);
+        }
+
+        .send-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                width: 100%;
+                height: 100vh;
+                border-radius: 0;
+            }
+
+            .game-controls {
+                flex-direction: column;
+            }
+
+            .message {
+                max-width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <h1>🎮 LangChain TRPG System</h1>
+            <div class="status" id="status">시스템 연결 중...</div>
+        </div>
+
+        <div class="game-area">
+            <div class="game-controls">
+                <input type="text" id="gameId" class="game-id-input" placeholder="게임 ID (예: my-adventure)" value="demo-game">
+                <button onclick="resetGame()" class="control-button danger">게임 리셋</button>
+                <button onclick="getMemoryInfo()" class="control-button">메모리 정보</button>
+                <button onclick="scrollToTop()" class="control-button">↑ 맨 위로</button>
+                <button onclick="scrollToBottom()" class="control-button">↓ 맨 아래로</button>
+            </div>
+
+            <div class="chat-container">
+                <div class="messages" id="messages">
+                    <div class="message system">
+                        🎲 LangChain TRPG 시스템에 오신 것을 환영합니다!<br>
+                        게임 ID를 설정하고 모험을 시작해보세요.
+                    </div>
+                </div>
+
+                <div class="loading" id="loading">
+                    🎲 게임마스터가 생각 중입니다...
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-group">
+                <input type="text" id="messageInput" class="message-input"
+                       placeholder="게임마스터에게 말하고 싶은 내용을 입력하세요..."
+                       onkeypress="handleKeyPress(event)">
+                <button id="sendButton" class="send-button" onclick="sendMessage()">전송</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Socket.IO 연결
+        const socket = io();
+        let isLoading = false;
+
+        // 연결 상태 관리
+        socket.on('connect', () => {
+            updateStatus('✅ 연결됨 - 게임을 시작할 수 있습니다');
+        });
+
+        socket.on('disconnect', () => {
+            updateStatus('❌ 연결 끊어짐 - 재연결 시도 중...');
+        });
+
+        socket.on('status', (data) => {
+            addMessage(data.message, 'system');
+        });
+
+        socket.on('game_response', (data) => {
+            setLoading(false);
+            if (data.success) {
+                addGameResponse(data);
+            } else {
+                addMessage(`오류: ${data.error || '알 수 없는 오류'}`, 'system');
+            }
+        });
+
+        socket.on('error', (data) => {
+            setLoading(false);
+            addMessage(`오류: ${data.message}`, 'system');
+        });
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        function addMessage(content, type = 'user') {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = content;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function addGameResponse(data) {
+            const content = data.message;
+            const options = data.options || [];
+
+            let messageHtml = content;
+
+            if (options.length > 0) {
+                messageHtml += '<div class="options">';
+                options.forEach(option => {
+                    messageHtml += `<button class="option-button" onclick="selectOption('${option}')">${option}</button>`;
+                });
+                messageHtml += '</div>';
+            }
+
+            addMessage(messageHtml, 'gm');
+
+            if (data.image_info && data.image_info.should_generate) {
+                addMessage(`🖼️ 이미지 생성: ${data.image_info.prompt}`, 'system');
+            }
+        }
+
+        function selectOption(option) {
+            document.getElementById('messageInput').value = option;
+            sendMessage();
+        }
+
+        function sendMessage() {
+            if (isLoading) return;
+
+            const messageInput = document.getElementById('messageInput');
+            const gameId = document.getElementById('gameId').value.trim();
+            const message = messageInput.value.trim();
+
+            if (!message) return;
+            if (!gameId) {
+                alert('게임 ID를 입력해주세요!');
+                return;
+            }
+
+            addMessage(message, 'user');
+            messageInput.value = '';
+            setLoading(true);
+
+            // Socket.IO로 실시간 전송
+            socket.emit('game_message', {
+                game_id: gameId,
+                message: message
+            });
+        }
+
+        function setLoading(loading) {
+            isLoading = loading;
+            const loadingDiv = document.getElementById('loading');
+            const sendButton = document.getElementById('sendButton');
+            const messageInput = document.getElementById('messageInput');
+
+            if (loading) {
+                loadingDiv.classList.add('show');
+                sendButton.disabled = true;
+                messageInput.disabled = true;
+            } else {
+                loadingDiv.classList.remove('show');
+                sendButton.disabled = false;
+                messageInput.disabled = false;
+                messageInput.focus();
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !isLoading) {
+                sendMessage();
+            }
+        }
+
+        async function resetGame() {
+            const gameId = document.getElementById('gameId').value.trim();
+            if (!gameId) {
+                alert('게임 ID를 입력해주세요!');
+                return;
+            }
+
+            if (!confirm(`게임 "${gameId}"를 리셋하시겠습니까?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/reset/${gameId}`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    addMessage('🔄 게임이 리셋되었습니다.', 'system');
+                    // 메시지 영역 클리어
+                    const messagesDiv = document.getElementById('messages');
+                    messagesDiv.innerHTML = '<div class="message system">🎲 새로운 게임이 시작되었습니다!</div>';
+                } else {
+                    addMessage(`리셋 오류: ${data.error}`, 'system');
+                }
+            } catch (error) {
+                addMessage(`연결 오류: ${error.message}`, 'system');
+            }
+        }
+
+        async function getMemoryInfo() {
+            const gameId = document.getElementById('gameId').value.trim();
+            if (!gameId) {
+                alert('게임 ID를 입력해주세요!');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/memory/${gameId}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    const stats = data.memory_stats;
+                    const info = `📊 메모리 정보:
+                    - 존재: ${stats.exists ? '✅' : '❌'}
+                    - 총 메시지: ${stats.total_messages || 0}
+                    - 사용자 메시지: ${stats.human_messages || 0}
+                    - AI 메시지: ${stats.ai_messages || 0}
+                    - 요약 존재: ${stats.has_summary ? '✅' : '❌'}`;
+
+                    addMessage(info, 'system');
+                } else {
+                    addMessage(`메모리 정보 오류: ${data.error}`, 'system');
+                }
+            } catch (error) {
+                addMessage(`연결 오류: ${error.message}`, 'system');
+            }
+        }
+
+        // 스크롤 관련 기능
+        function scrollToTop() {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function scrollToBottom() {
+            const messagesDiv = document.getElementById('messages');
+            messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+        }
+
+        // 키보드 단축키 추가
+        document.addEventListener('keydown', function(event) {
+            const messagesDiv = document.getElementById('messages');
+
+            // Ctrl + Home: 맨 위로
+            if (event.ctrlKey && event.key === 'Home') {
+                event.preventDefault();
+                scrollToTop();
+            }
+
+            // Ctrl + End: 맨 아래로
+            if (event.ctrlKey && event.key === 'End') {
+                event.preventDefault();
+                scrollToBottom();
+            }
+
+            // Page Up/Down으로 스크롤
+            if (event.key === 'PageUp') {
+                event.preventDefault();
+                messagesDiv.scrollBy({ top: -300, behavior: 'smooth' });
+            }
+
+            if (event.key === 'PageDown') {
+                event.preventDefault();
+                messagesDiv.scrollBy({ top: 300, behavior: 'smooth' });
+            }
+        });
+
+        // 페이지 로드 시 초기화
+        window.onload = () => {
+            document.getElementById('messageInput').focus();
+            updateStatus('🔄 연결 중...');
+        };
+    </script>
+</body>
+</html>
