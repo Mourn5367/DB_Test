@@ -15,7 +15,8 @@ from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 from config.settings import get_config
-from data.mongo_manager import scenario_data_manager
+# MongoDB 의존성 제거 - 외부 API를 통해 데이터 가져올 예정
+# from data.mongo_manager import scenario_data_manager
 
 class VectorMemoryManager:
     """벡터 스토어 기반 메모리 관리자"""
@@ -73,33 +74,8 @@ class VectorMemoryManager:
             if existing_count > 0:
                 self.logger.info(f"Loaded existing vector store for game {game_id} with {existing_count} documents")
             else:
-                # 기본 시나리오 데이터 추가
-                self._add_base_scenarios_to_store(vector_store, game_id)
-
-                # MongoDB에서 기존 대화 히스토리도 벡터화
-                try:
-                    chat_history = scenario_data_manager.get_chat_history(game_id, limit=100)
-                    if chat_history:
-                        self.logger.info(f"Adding {len(chat_history)} existing conversations to vector store for game {game_id}")
-
-                        for chat in chat_history:
-                            event_content = f"사용자: {chat['user_input']}\nGM: {chat['ai_response']}"
-                            metadata = {
-                                "type": "conversation",
-                                "source": "restored_dialogue",
-                                "game_id": game_id,
-                                "sequence_number": chat.get("sequence_number", 0)
-                            }
-
-                            doc = Document(page_content=event_content, metadata=metadata)
-                            vector_store.add_documents([doc])
-
-                        self.logger.info(f"Successfully added existing conversations to vector store")
-
-                except Exception as e:
-                    self.logger.warning(f"Failed to load existing conversations to vector store: {e}")
-
-                self.logger.info(f"Initialized vector store for game {game_id} with base scenarios and existing conversations")
+                self.logger.info(f"Initialized new vector store for game {game_id}")
+                # MongoDB 의존성 제거 - 필요시 외부 API로 초기 데이터 로드 가능
 
             self.vector_stores[game_id] = vector_store
 
@@ -119,36 +95,10 @@ class VectorMemoryManager:
             raise
 
     def _add_base_scenarios_to_store(self, vector_store: Chroma, game_id: str):
-        """기본 시나리오 데이터를 벡터 스토어에 추가"""
-        try:
-            # MongoDB에서 기본 데이터 로드
-            if self.base_scenarios is None:
-                self.base_scenarios = scenario_data_manager.get_all_data_for_vectorization()
-
-            # 문서 생성
-            documents = []
-            for data in self.base_scenarios:
-                # 게임별 메타데이터 추가
-                metadata = data["metadata"].copy()
-                metadata.update({
-                    "game_id": game_id,
-                    "timestamp": datetime.now().isoformat(),
-                    "source": "base_scenario"
-                })
-
-                doc = Document(
-                    page_content=data["content"],
-                    metadata=metadata
-                )
-                documents.append(doc)
-
-            # 벡터 스토어에 추가
-            if documents:
-                vector_store.add_documents(documents)
-                self.logger.info(f"Added {len(documents)} base scenario documents to game {game_id}")
-
-        except Exception as e:
-            self.logger.error(f"Failed to add base scenarios to vector store: {e}")
+        """기본 시나리오 데이터를 벡터 스토어에 추가 - MongoDB 제거됨"""
+        # MongoDB 의존성 제거
+        # 필요한 경우 외부 API에서 초기 시나리오 데이터를 가져와 추가할 수 있음
+        self.logger.info(f"Base scenario loading skipped (MongoDB removed) for game {game_id}")
 
     def add_scenario_data(self, game_id: str, content: str, metadata: Dict[str, Any] = None):
         """시나리오 데이터 추가"""
