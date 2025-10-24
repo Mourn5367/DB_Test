@@ -29,10 +29,14 @@ def _deep_merge(source, destination):
     """재귀적으로 딕셔너리를 병합합니다."""
     for key, value in source.items():
         if isinstance(value, dict):
-            # Get node or create one
+            # 딕셔너리인 경우 재귀적으로 병합
             node = destination.setdefault(key, {})
             _deep_merge(value, node)
+        elif isinstance(value, list):
+            # 리스트인 경우 전체 교체 (병합하지 않음)
+            destination[key] = value
         else:
+            # 기본값은 그냥 덮어쓰기
             destination[key] = value
     return destination
 
@@ -92,7 +96,7 @@ class LangChainGameMaster:
             step_start = time.time()
             vector_memory = vector_memory_manager.get_vector_memory(game_id)
             relevant_context = vector_memory_manager.search_relevant_context(
-                game_id, user_input, k=3
+                game_id, user_input, k=10
             )
             self.logger.info(f"[TIMING] 벡터 컨텍스트 검색: {time.time() - step_start:.2f}초")
 
@@ -190,12 +194,19 @@ class LangChainGameMaster:
                     "need_image": False
                 }
 
-            # 6. 캐릭터 정보 업데이트 처리
+            # 6. 캐릭터 정보 업데이트 처리 (게임 ID로 업데이트)
             if "update_character" in response_data:
                 update_info = response_data["update_character"]
-                character_id = update_info.get("character_id")
-                if character_id:
-                    self._update_character_info(game_id, character_id, update_info)
+                # update_info가 None이 아니고 딕셔너리인지 확인
+                if update_info and isinstance(update_info, dict):
+                    updated_char = self._update_character_info(game_id, update_info)
+
+                    # 체력이 0 이하인 경우 죽음 처리
+                    if updated_char and updated_char.get('health', 1) <= 0:
+                        death_response = self._handle_character_death(game_id, updated_char, user_input, response_data["message"])
+                        return death_response
+                else:
+                    self.logger.warning(f"update_character 값이 유효하지 않습니다: {update_info}")
 
             # 7. 메모리에 대화 저장 (LangChain)
             step_start = time.time()
@@ -211,7 +222,10 @@ class LangChainGameMaster:
             self._add_user_input_to_vector_storage(game_id, user_input)
 
             # 9. AI 응답도 벡터 저장소에 저장
-            self._add_ai_response_to_vector_storage(game_id, response_data["message"], response_data.get("image_url"))
+            if response_data and "message" in response_data:
+                self._add_ai_response_to_vector_storage(game_id, response_data["message"], response_data.get("image_url"))
+            else:
+                self.logger.warning(f"response_data가 비어있거나 message 키가 없습니다: {response_data}")
             self.logger.info(f"[TIMING] 벡터DB 저장: {time.time() - step_start:.2f}초")
 
             # 이미지 생성 정보 (첫 번째 응답에서 이미 포함됨)
@@ -240,7 +254,9 @@ class LangChainGameMaster:
             return result
 
         except Exception as e:
+            import traceback
             self.logger.error(f"Error processing game request: {e}")
+            self.logger.error(f"상세 에러:\n{traceback.format_exc()}")
             return self._handle_error(e)
 
     def _prepare_game_context(self, game_id: str) -> str:
@@ -288,8 +304,9 @@ class LangChainGameMaster:
                 for char in characters:
                     context_parts.append(f"- 이름: {char.get('name', '알 수 없음')} (ID: {char.get('id')})")
                     context_parts.append(f"  - 직업: {char.get('class', '알 수 없음')}, 레벨: {char.get('level', 0)}")
+                    context_parts.append(f"  - 체력: {char.get('health', 0)}/{char.get('maxHealth', 0)}")
                     context_parts.append(f"  - 능력치: {json.dumps(char.get('stats', {}), ensure_ascii=False)}")
-                    context_parts.append(f"  - 인벤토리: {json.dumps(char.get('inventory', {}), ensure_ascii=False)}")
+                    context_parts.append(f"  - 인벤토리: {json.dumps(char.get('inventory', []), ensure_ascii=False)}")
                 
                 # 나중에 업데이트를 위해 캐릭터 정보 저장
                 context_manager.set_context(game_id, "characters", characters)
@@ -301,44 +318,146 @@ class LangChainGameMaster:
 
         return "\n".join(context_parts)
 
-    def _update_character_info(self, game_id: str, character_id: str, update_data: Dict[str, Any]):
-        """API를 통해 캐릭터 정보 업데이트 (Deep Merge)"""
+    def _update_character_info(self, game_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """API를 통해 캐릭터 정보 업데이트 (게임 ID 기반)"""
         base_url = self.api_config["base_url"]
-        api_url = f"{base_url}/api/characters/{character_id}"
-        
-        # 1. 기존 캐릭터 정보 가져오기
+        api_url = f"{base_url}/api/characters/game/{game_id}"
+
+        # 1. 기존 캐릭터 정보 가져오기 (첫 번째 캐릭터 사용)
         all_characters = context_manager.get_context(game_id, "characters")
-        if not all_characters:
-            self.logger.warning(f"캐릭터 정보가 없어 업데이트를 건너뜁니다: {character_id}")
-            return
+        if not all_characters or len(all_characters) == 0:
+            self.logger.warning(f"캐릭터 정보가 없어 업데이트를 건너뜁니다: game_id={game_id}")
+            return None
 
-        original_char_data = next((c for c in all_characters if c.get("id") == character_id), None)
-
-        if not original_char_data:
-            self.logger.warning(f"업데이트할 캐릭터를 찾을 수 없습니다: {character_id}")
-            return
+        # 게임에 첫 번째 캐릭터를 업데이트 대상으로 사용
+        original_char_data = all_characters[0]
 
         # 2. 변경분 병합 (Deep Merge)
-        # 원본을 복사하여 사용
         merged_data = copy.deepcopy(original_char_data)
-        update_payload = {k: v for k, v in update_data.items() if k != 'character_id'}
+        update_payload = {k: v for k, v in update_data.items()}
         merged_data = _deep_merge(update_payload, merged_data)
 
-        # API 페이로드에 필요한 필드만 선택 (id, userId, gameId 등 제외)
-        payload_to_send = {
-            "name": merged_data.get("name"),
-            "class": merged_data.get("class"),
-            "stats": merged_data.get("stats"),
-            "inventory": merged_data.get("inventory"),
-            "avatar": merged_data.get("avatar")
-        }
+        # API 페이로드 생성 (변경된 필드만 포함)
+        payload_to_send = {}
+        allowed_fields = ["name", "class", "level", "stats", "inventory", "avatar", "health"]
+
+        for field in allowed_fields:
+            if field in update_payload:
+                payload_to_send[field] = merged_data.get(field)
+
+        if not payload_to_send:
+            self.logger.warning(f"업데이트할 필드가 없습니다: {update_data}")
+            return None
 
         try:
+            self.logger.info(f"캐릭터 정보 업데이트 요청: game_id={game_id}, payload={payload_to_send}")
             response = requests.patch(api_url, json=payload_to_send)
             response.raise_for_status()
-            self.logger.info(f"캐릭터 {character_id} 정보 업데이트 성공")
+            updated_char = response.json()
+            self.logger.info(f"캐릭터 정보 업데이트 성공: {updated_char}")
+
+            # 메모리에 저장된 캐릭터 정보도 업데이트
+            all_characters[0] = updated_char
+            context_manager.set_context(game_id, "characters", all_characters)
+
+            return updated_char
+
         except requests.exceptions.RequestException as e:
             self.logger.error(f"캐릭터 정보 업데이트 API 호출 실패: {e}")
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                self.logger.error(f"응답 내용: {e.response.text}")
+            return None
+
+    def _handle_character_death(self, game_id: str, character: Dict[str, Any], final_action: str, death_context: str) -> Dict[str, Any]:
+        """캐릭터 죽음 처리 - 죽음 원인과 서사 요약 생성"""
+        try:
+            # ChromaDB에서 전체 대화 히스토리 가져오기
+            vector_store = vector_memory_manager.vector_stores.get(game_id)
+            if not vector_store:
+                vector_memory_manager._initialize_game_vector_store(game_id)
+                vector_store = vector_memory_manager.vector_stores.get(game_id)
+
+            # 전체 대화 내역 조회
+            results = vector_store.get(where={"type": "conversation"})
+
+            conversation_history = []
+            if results and 'documents' in results:
+                for doc, metadata in zip(results['documents'], results['metadatas']):
+                    conversation_history.append({
+                        'content': doc,
+                        'timestamp': metadata.get('timestamp', ''),
+                        'role': metadata.get('role', 'unknown')
+                    })
+                # 시간순 정렬
+                conversation_history.sort(key=lambda x: x['timestamp'])
+
+            # 대화 내역을 텍스트로 변환
+            history_text = "\n".join([conv['content'] for conv in conversation_history[-20:]])  # 최근 20개
+
+            # LLM에게 죽음 원인 및 서사 요약 요청
+            death_prompt = f"""캐릭터가 사망했습니다. 다음 정보를 바탕으로 죽음의 원인과 캐릭터의 여정을 요약해주세요.
+
+=== 캐릭터 정보 ===
+이름: {character.get('name', '알 수 없음')}
+직업: {character.get('class', '알 수 없음')}
+레벨: {character.get('level', 1)}
+
+=== 최근 게임 진행 ===
+{history_text}
+
+=== 마지막 행동 ===
+{final_action}
+
+=== 죽음의 순간 ===
+{death_context}
+
+다음 형식으로 응답해주세요:
+1. 죽음의 원인을 2-3문장으로 설명
+2. 캐릭터의 여정을 3-4문장으로 요약 (시작부터 끝까지)
+3. 감동적이고 극적인 마무리 문장
+
+전체를 하나의 자연스러운 이야기로 작성하세요."""
+
+            death_summary = self.llm.invoke(death_prompt)
+
+            # 죽음 메시지 구성
+            final_message = f"""
+═══════════════════════════════════════
+        {character.get('name', '모험가')}의 마지막
+═══════════════════════════════════════
+
+{death_summary}
+
+체력: 0/{character.get('maxHealth', 0)}
+
+게임이 종료되었습니다.
+═══════════════════════════════════════
+"""
+
+            self.logger.info(f"캐릭터 사망 처리 완료: {character.get('name')} (game_id={game_id})")
+
+            return {
+                "success": True,
+                "message": final_message,
+                "options": [],  # 옵션 없음
+                "need_image": False,
+                "game_over": True,
+                "character_death": True,
+                "character_name": character.get('name'),
+                "timestamp": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            self.logger.error(f"죽음 처리 중 에러: {e}")
+            # 에러 발생 시 기본 메시지 반환
+            return {
+                "success": True,
+                "message": f"{character.get('name', '캐릭터')}는 쓰러졌습니다...\n\n게임이 종료되었습니다.",
+                "options": [],
+                "need_image": False,
+                "game_over": True,
+                "timestamp": datetime.now().isoformat()
+            }
 
     def _check_image_generation(self, user_input: str, gm_response: str, game_context: str) -> Optional[Dict[str, Any]]:
         """이미지 생성 필요성 확인"""

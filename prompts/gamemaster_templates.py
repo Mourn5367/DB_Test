@@ -22,13 +22,25 @@ GAMEMASTER_SYSTEM_TEMPLATE = """당신은 TRPG(테이블탑 롤플레잉 게임)
     "message": "플레이어에게 보여줄 메시지",
     "options": ["선택지1", "선택지2", "선택지3"],
     "need_image": true/false,
-    "image_prompt": "이미지 생성용 프롬프트 (필요시에만)",
+    "image_prompt": "Image generation prompt in English (only if needed)",
     "update_character": {{
-        "character_id": "변경할 캐릭터의 ID",
-        "stats": {{"STR": 11, "DEX": 12}},
-        "inventory": {{"아이템": ["포션", "새로운 아이템"]}}
+        "name": "캐릭터 이름 (변경 시에만)",
+        "class": "직업 (변경 시에만)",
+        "level": 레벨 숫자 (변경 시에만),
+        "stats": {{
+            "strength": 15,
+            "dexterity": 7,
+            "wisdom": 5,
+            "charisma": 3
+        }},
+        "inventory": ["아이템1", "아이템2"],
+        "health": 체력 숫자 (데미지/회복 시에만)
     }}
 }}
+
+주의사항:
+- update_character에는 변경이 필요한 필드만 포함하세요. 모든 필드를 보낼 필요 없습니다.
+- image_prompt는 **반드시 영어로 작성**하세요. 예: "medieval warrior fighting dragon in dark castle"
 
 === 게임 진행 규칙 ===
 1. 제공된 캐릭터 정보를 반드시 참조하여 응답

@@ -4,26 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 프로젝트 개요
 
-LangChain TRPG 시스템은 Flask, LangChain, Ollama를 사용한 테이블탑 롤플레잉 게임(TRPG) 플랫폼입니다. AI 기반 게임마스터가 게임 세션을 관리하고, 여러 저장소 시스템에 걸쳐 대화 메모리를 유지하며, 플레이어에게 상황에 맞는 응답을 생성합니다.
+LangChain TRPG 시스템은 Flask, LangChain, Ollama를 사용한 AI 기반 테이블탑 롤플레잉 게임(TRPG) 플랫폼입니다. 외부 API를 통해 게임/캐릭터 정보를 가져오고, ChromaDB로 대화 메모리를 유지하며, ComfyUI를 통해 이미지를 생성합니다.
 
 ## 개발 명령어
 
 ### 애플리케이션 실행
 
 ```bash
-# 서버 시작
+# 서버 시작 (포트 5001)
 python app.py
 
-# 서버는 http://localhost:5000 에서 실행됩니다
-# WebSocket 엔드포인트도 같은 주소에서 사용 가능합니다
+# 서버는 http://192.168.26.165:5001 에서 실행
+# WebSocket 네임스페이스: /game/{game_id}
 ```
 
 ### 환경 설정
 
 `.env` 파일 생성:
 ```
-OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1:8b
+OLLAMA_URL=http://ollama.aikopo.net
+OLLAMA_MODEL=gpt-oss:20b
+EXTERNAL_API_URL=http://192.168.26.165:1024
+IMAGE_BASE_URL=http://192.168.26.165:5001/images
 SECRET_KEY=your-secret-key
 DEBUG=True
 ```
@@ -31,157 +33,224 @@ DEBUG=True
 ### 의존성 설치
 
 ```bash
+# 가상환경 생성 및 활성화
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# 또는
+venv\Scripts\activate  # Windows
+
 # 의존성 설치
 pip install -r requirements.txt
 
 # 주요 의존성:
-# - langchain (v0.3.7+)
-# - flask + flask-socketio (웹 프레임워크)
-# - pymongo (MongoDB 클라이언트)
-# - chromadb (벡터 데이터베이스)
-# - sentence-transformers (임베딩)
+# - langchain (v0.3.7+) - AI 체인 및 프롬프트 관리
+# - flask + flask-socketio + eventlet - 웹 프레임워크 및 WebSocket
+# - chromadb - 벡터 데이터베이스 (대화 메모리 저장)
+# - sentence-transformers - 임베딩 모델
+# - requests - 외부 API 호출
 ```
 
-### 테스트
+### 캐시 파일 정리
 
 ```bash
-# 테스트 실행
-pytest tests/
-
-# 시스템 상태 확인
-curl http://localhost:5000/health
+# Python 캐시 파일 삭제 (EOFError 발생 시)
+find . -type d -name "__pycache__" -exec rm -rf {} +
+find . -type f -name "*.pyc" -delete
 ```
 
 ## 아키텍처 개요
 
-### 3계층 메모리 시스템
+### 메모리 시스템 (MongoDB 제거됨)
 
-시스템은 게임 상태와 대화 컨텍스트를 유지하기 위해 정교한 3계층 메모리 아키텍처를 사용합니다:
+현재 시스템은 **단일 저장소 아키텍처**를 사용합니다:
 
-1. **LangChain ConversationSummaryBufferMemory** (memory/game_memory.py)
-   - 자동 요약 기능이 있는 인메모리 대화 히스토리
-   - 토큰 제한: 4000 토큰, 요약 임계값: 3000 토큰
-   - 제한 도달 시 오래된 대화를 자동으로 요약
-   - 게임 로드 시 MongoDB에서 복원
+**ChromaDB 벡터 메모리** (`memory/vector_memory.py`)
+- 모든 대화 내역을 벡터화하여 저장
+- **원본 텍스트도 함께 저장** (`page_content` 필드)
+- 사용자 입력과 AI 응답을 **개별 문서로 저장** (턴당 2개 문서)
+- 메타데이터:
+  - `type`: "conversation" (대화 내역)
+  - `role`: "user" 또는 "assistant"
+  - `game_id`: 게임 식별자
+  - `timestamp`: ISO 8601 형식
+  - `image_url`: 이미지가 있는 경우 URL
 
-2. **MongoDB 저장소** (data/mongo_manager.py)
-   - 모든 게임 데이터의 영구 저장소
-   - 컬렉션: game_sessions, chat_history, story_events, scenarios, character_templates, locations, event_templates
-   - 채팅 메시지는 순서 정렬을 위해 sequence_number와 함께 저장
-   - 게임 상태 복원을 위한 신뢰할 수 있는 소스
+**하이브리드 메모리 전략** (`agents/gamemaster.py:104-152`)
+- 최근 N개 대화: 원본 텍스트 사용 (`RECENT_LIMIT = 10`)
+- 오래된 대화: 벡터 검색으로 관련성 높은 것만 가져오기 (`k=3`)
+- AI 컨텍스트 구성 시 두 가지 모두 포함
 
-3. **ChromaDB 벡터 메모리** (memory/vector_memory.py)
-   - 게임 콘텐츠에 대한 의미론적 검색
-   - 저장 항목: 과거 대화, 시나리오 데이터, 캐릭터 배경, 위치 정보, 이벤트 템플릿
-   - HuggingFace 임베딩 사용 (all-MiniLM-L6-v2)
-   - 관련 과거 이벤트를 검색하여 컨텍스트 인식 응답 가능
+### 외부 API 통합
+
+**게임/캐릭터 데이터** - 외부 API에서 가져옴 (`http://192.168.26.165:1024`)
+- `GET /api/games/{game_id}` - 게임 정보
+- `GET /api/games/{game_id}/characters` - 캐릭터 목록
+- `PATCH /api/characters/game/{game_id}` - 캐릭터 정보 업데이트
+  - body: `{ name?, class?, level?, stats?, inventory?, avatar?, health? }`
+  - stats 구조: `{ strength, dexterity, wisdom, charisma }`
 
 ### 요청 처리 흐름
 
-플레이어가 메시지를 보낼 때:
-1. `app.py`가 WebSocket 또는 REST API를 통해 메시지 수신
-2. `agents/gamemaster.py:process_game_request()`가 처리 조율:
-   - SessionContextManager에서 게임 컨텍스트 준비
-   - ChromaDB에서 관련 과거 컨텍스트 검색 (k=3 문서)
-   - LangChain 메모리 검색 (요약된 대화 히스토리)
-   - GAMEMASTER_CHAT_PROMPT로 LLMChain 실행
-   - LangChain 메모리와 MongoDB에 대화 저장
-   - ChromaDB 벡터 저장소에 대화 추가
-3. message, options, 이미지 생성 플래그가 포함된 JSON 응답 반환
+플레이어가 WebSocket으로 메시지를 보낼 때:
+
+1. **세션 생성** (`POST /api/session/create`)
+   - `game_id`를 받아 동적으로 `/game/{game_id}` 네임스페이스 등록
+
+2. **WebSocket 연결** (클라이언트 → `/game/{game_id}`)
+   - `game_message` 이벤트로 메시지 전송
+
+3. **AI 응답 생성** (`agents/gamemaster.py:process_game_request()`)
+   - 외부 API에서 게임/캐릭터 컨텍스트 가져오기
+   - ChromaDB에서 관련 과거 대화 검색 (벡터 검색 k=3)
+   - 최근 대화 원문 가져오기 (최근 10턴)
+   - 하이브리드 컨텍스트 구성하여 LLM에 전달
+   - `GAMEMASTER_CHAT_PROMPT`로 응답 생성
+   - JSON 파싱: `{message, options, need_image, image_prompt, update_character?}`
+
+4. **메모리 저장**
+   - 사용자 입력 → ChromaDB (role="user")
+   - AI 응답 → ChromaDB (role="assistant")
+
+5. **캐릭터 업데이트** (선택적)
+   - AI가 `update_character` 응답 시 외부 API 호출
+   - Deep Merge 방식으로 기존 데이터와 병합
+
+6. **이미지 생성** (선택적)
+   - `need_image=true` 시 ComfyUI에 비동기 요청
+   - 폴링 방식으로 이미지 완성 대기
+   - 서버에 파일 저장 → URL 전송
+   - ChromaDB에 이미지 URL 저장
 
 ### 주요 컴포넌트
 
-**GameMaster 에이전트** (agents/gamemaster.py)
-- LangChain LLMChain을 사용하는 핵심 AI 에이전트
-- 3개의 특화된 체인:
-  - `gm_chain`: 메인 게임 내레이션 및 응답 생성
-  - `image_chain`: 장면에 시각적 표현이 필요한지 판단
-  - `character_chain`: 캐릭터별 상호작용 처리
-- `process_game_request()`에서 3개의 메모리 시스템 모두 통합
+**GameMaster 에이전트** (`agents/gamemaster.py`)
+- 단일 LLMChain 사용 (`gm_chain`)
+- `image_chain`, `character_chain`은 초기화만 되어있고 미사용
+- `process_game_request()`: 전체 게임 로직 조율
+- `_prepare_game_context()`: 외부 API에서 게임 컨텍스트 준비
+- `_update_character_info()`: Deep Merge로 캐릭터 정보 업데이트
 
-**메모리 매니저**
-- `TRPGMemoryManager`: 게임 세션별 LangChain 대화 메모리 관리, 첫 접근 시 MongoDB에서 복원
-- `SessionContextManager`: 게임 상태 추적 (시나리오, 캐릭터, 위치), MongoDB에 영속화
-- `VectorMemoryManager`: 게임별 ChromaDB 컬렉션 관리, 의미론적 검색 지원
+**벡터 메모리 매니저** (`memory/vector_memory.py`)
+- 게임별 ChromaDB 컬렉션 관리
+- `add_scenario_data()`: 대화 저장 (type 메타데이터 보존)
+- `search_relevant_context()`: 의미론적 검색
+- MongoDB 의존성 제거됨
 
-**데이터 레이어**
-- `MongoManager`: MongoDB 연결 및 인덱스 관리
-- `ScenarioDataManager`: 시나리오, 캐릭터, 위치, 이벤트에 대한 CRUD 작업, 첫 실행 시 기본 데이터 초기화 포함
+**프롬프트 템플릿** (`prompts/gamemaster_templates.py`)
+- `GAMEMASTER_CHAT_PROMPT`: 메인 게임 프롬프트
+- 필수 변수: `game_context`, `chat_summary`, `user_input`
+- JSON 응답 형식 강제
+- **이미지 프롬프트는 반드시 영어로 작성**
 
-**프롬프트 템플릿** (prompts/gamemaster_templates.py)
-- 구조화된 LangChain PromptTemplates
-- GAMEMASTER_CHAT_PROMPT 필요 변수: game_context, chat_summary, user_input
-- JSON 응답 형식 강제: {message, options, need_image, image_prompt}
+**ComfyUI 매니저** (`comfy_manager.py`)
+- LoRA 워크플로우 사용 (`lora.json`)
+- 폴링 기반 이미지 생성 확인
+- 이미지 파일명: `game_{game_id}_{timestamp}_{uuid}.{ext}`
+
+**WebSocket 네임스페이스** (`app.py:GameNamespace`)
+- 게임별 독립 네임스페이스 (`/game/{game_id}`)
+- 이벤트: `game_message`, `game_response`, `game_image`, `status`
+- eventlet 기반 비동기 처리
 
 ## 중요한 패턴
 
-### 게임 세션 생명주기
+### Deep Merge 패턴
 
-- 각 게임은 고유한 `game_id` 문자열로 식별
-- 게임에 첫 접근 시 트리거:
-  - LangChain 메모리 생성 및 MongoDB에서 복원
-  - ChromaDB 컬렉션 생성 및 기본 시나리오 + 과거 대화 로딩
-  - 새 게임인 경우 기본 컨텍스트 설정
-- 세션 컨텍스트는 인메모리에 유지되며 업데이트 시 MongoDB에 동기화
+캐릭터 정보 업데이트 시 재귀적 병합 (`_deep_merge()`)
+- 딕셔너리: 재귀적으로 병합 (중첩된 stats 등)
+- 리스트: 전체 교체 (inventory 등)
+- 기본값: 덮어쓰기
 
-### 메모리 동기화
+### 이미지 저장 및 URL 전송
 
-3개의 메모리 시스템 모두 동기화 유지:
-- 새 대화 → LangChain 메모리 + MongoDB + ChromaDB
-- 게임 리셋 → `gamemaster.reset_game(game_id)`를 통해 3개 시스템 모두 초기화
-- 메모리 복원 → LangChain과 ChromaDB가 MongoDB에서 로드
+1. ComfyUI에서 이미지 생성
+2. 서버에 파일 저장: `./static/images/game_{game_id}_{timestamp}_{uuid}.png`
+3. URL 생성: `http://192.168.26.165:5001/images/{filename}`
+4. WebSocket으로 URL 전송 (`game_image` 이벤트)
+5. ChromaDB에 이미지 URL 저장 (별도 문서)
 
-### LLM 통합
+### 에러 처리
 
-- 설정 가능한 모델로 Ollama 사용 (기본값: 원격 서버의 gpt-oss:120b)
-- 모든 LLM 호출은 LangChain 추상화를 통해 실행 (LLMChain, PromptTemplate)
-- Temperature: 게임플레이는 0.7, 요약은 0.3
-- 타임아웃: 요청당 120초
+- LLM 응답이 None 또는 빈 문자열: 기본 응답 반환
+- JSON 파싱 실패: 원본 텍스트를 message로 사용
+- `update_character`가 None: 안전하게 무시
+- 리스트를 딕셔너리처럼 접근: Deep Merge에서 타입 체크
+
+### WebSocket 연결 프로세스
+
+```python
+# 1. 세션 생성
+POST /api/session/create
+body: { game_id: "24", session_id: "uuid" }
+
+# 2. WebSocket 연결
+io('http://192.168.26.165:5001/game/24')
+
+# 3. 메시지 전송
+socket.emit('game_message', { message: "마을로 간다" })
+
+# 4. 응답 수신
+socket.on('game_response', (data) => {
+  // data.message, data.options, data.need_image
+})
+
+# 5. 이미지 수신 (비동기)
+socket.on('game_image', (data) => {
+  // data.image_urls[0]
+})
+```
 
 ## API 엔드포인트
 
 ### 게임 관리
-- `POST /api/chat` - 게임 메시지 전송
-- `POST /api/reset/{game_id}` - 모든 게임 데이터 리셋
-- `GET /api/memory/{game_id}` - 모든 시스템의 메모리 통계 조회
-- `GET /api/context/{game_id}` - 현재 게임 컨텍스트 조회
-- `GET /api/history/{game_id}?limit=N` - 채팅 히스토리 조회
-
-### 데이터 접근
-- `GET /api/scenarios` - 모든 시나리오 템플릿 목록
-- `GET /api/scenarios/{type}` - 특정 시나리오 조회
-- `GET /api/characters` - 캐릭터 템플릿 목록
-- `GET /api/locations` - 위치 데이터 목록
-- `GET /api/events` - 이벤트 템플릿 목록
+- `POST /api/session/create` - WebSocket 네임스페이스 등록
+- `GET /api/history/{game_id}` - ChromaDB에서 전체 대화 히스토리 조회
+- `GET /images/{filename}` - 생성된 이미지 파일 서빙
 
 ### WebSocket 이벤트
 - `connect` - 클라이언트 연결 성공
-- `game_message` - 플레이어 행동 전송: {game_id, message}
-- `game_response` - GM 응답 수신: {success, message, options, need_image, image_info}
-- `error` - 에러 알림
+- `game_message` - 플레이어 행동 전송: `{message}`
+- `game_response` - GM 응답 수신: `{success, message, options, need_image, image_info}`
+- `game_image` - 이미지 URL 수신: `{success, game_id, image_urls, timestamp}`
+- `status` - 서버 상태 메시지
 
 ## 설정
 
-모든 설정은 `config/settings.py`에 중앙화:
-- `OLLAMA_CONFIG`: LLM 연결 설정
-- `MEMORY_CONFIG`: LangChain 메모리 제한 및 요약 임계값
-- `MONGODB_CONFIG`: MongoDB 연결 정보
-- `CHROMA_CONFIG`: ChromaDB 영속화 디렉토리
-- `VECTOR_MEMORY_CONFIG`: 임베딩 모델 및 검색 설정
-- `GAME_CONFIG`: 기본 시나리오 및 세션 관리
+`config/settings.py`에 중앙화:
+- `EXTERNAL_API_CONFIG`: 외부 게임/캐릭터 API
+- `OLLAMA_CONFIG`: LLM 연결 (원격 Ollama 서버)
+- `CHROMA_CONFIG`: ChromaDB 영속화 디렉토리 (`./chroma_db/`)
+- `VECTOR_MEMORY_CONFIG`: 임베딩 모델 (all-MiniLM-L6-v2), 검색 k=5
+- `IMAGE_STORAGE_CONFIG`: 이미지 저장 디렉토리 (`./static/images/`)
 
 ## 개발 참고사항
 
-- 빈 디렉토리 `chains/`와 `tools/`는 향후 커스텀 LangChain chains/tools 확장을 위한 것으로 보임
-- MongoDB는 첫 실행 시 기본 데이터를 자동으로 초기화 (시나리오, 캐릭터, 위치, 이벤트)
-- ChromaDB는 `./chroma_db/` 디렉토리에 영속화
-- 벡터 저장소는 CPU 기반 임베딩 사용 (GPU 불필요)
-- chat_history의 sequence_number는 동시 요청 시에도 올바른 대화 순서를 보장
-- 이미지 생성은 계획되어 있지만 완전히 구현되지 않음 (image_chain과 need_image 플래그는 존재)
+### MongoDB 관련
+- MongoDB 코드는 존재하지만 **사용하지 않음**
+- `data/mongo_manager.py` 파일은 있지만 import되지 않음
+- `memory/vector_memory.py`에서 MongoDB import 주석 처리됨
 
-## 개발 할 것
-- api를 통해 게임 ID, 세션 ID 값을 받아서 게임 ID 값으로 웹소켓 연결.
-- 연결된 웹소켓을 통해 프롬프트로 쓸 대화 내용을 받아와 Ollama AI 프롬프트 입력.
-- 벡터 DB는 그대로 사용하고, 이 외의 DB는 Cluade 사용자가 주는 API를 써서 기존 DB 이용하는 방식 그대로 사용하도록 하기.
-- 기존 내용을 그대로 유지하기에는 사용자가 API를 충분하게 제공하지 못한 경우 어떤 API가 필요하다고 얘기하기
+### 벡터 저장소
+- ChromaDB는 CPU 기반 임베딩 사용 (GPU 불필요)
+- 게임별 독립 컬렉션: `trpg_game_{game_id}`
+- `./chroma_db/` 디렉토리에 영속화
 
+### eventlet 필수
+- Flask-SocketIO는 **반드시 eventlet 모드**로 실행
+- `eventlet.monkey_patch()` 필수
+- threading 모드는 WebSocket 에러 발생
+
+### 캐시 파일 에러
+- `EOFError: marshal data too short` 발생 시 `__pycache__` 삭제
+- `.pyc` 파일 손상으로 인한 에러
+
+### 프롬프트 중요 사항
+- AI에게 **이미지 프롬프트는 반드시 영어로** 작성하도록 지시
+- 캐릭터 업데이트는 게임 ID만 사용 (character_id 불필요)
+- stats 필드명: strength, dexterity, wisdom, charisma
+- 체력 정보: health (현재), maxHealth (최대)
+
+### 대화 저장 방식
+- 사용자 입력과 AI 응답을 **개별 문서로 분리 저장**
+- 턴당 2개 문서 생성 (role="user", role="assistant")
+- 벡터 검색 시 맥락 유지를 위해 최근 대화는 원문 사용

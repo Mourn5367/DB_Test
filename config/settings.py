@@ -12,7 +12,7 @@ EXTERNAL_API_CONFIG = {
 # Ollama 설정
 OLLAMA_CONFIG = {
     "base_url": os.getenv("OLLAMA_URL", "http://ollama.aikopo.net"),
-    "model": os.getenv("OLLAMA_MODEL", "gpt-oss:20b"),
+    "model": os.getenv("OLLAMA_MODEL", "gpt-oss:120b"),
     "temperature": 0.7,
     "timeout": 120
 }
