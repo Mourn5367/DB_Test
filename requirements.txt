@@ -1,9 +1,30 @@
-flask==2.3.3
-flask-socketio==5.3.6
-requests==2.31.0
-mysql-connector-python==8.1.0
-chromadb==0.4.15
-websocket-client==1.6.3
-pillow==10.0.1
-python-socketio[client]==5.8.0
-python-engineio==4.7.1
+# Core LangChain packages
+langchain>=0.3.7
+langchain-core>=0.3.15
+langchain-community>=0.3.5
+langchain-ollama>=0.2.0
+langchain-huggingface>=0.1.0
+
+# Web framework
+flask>=3.0.3
+flask-socketio>=5.3.6
+eventlet>=0.33.3
+
+# Vector Store
+chromadb>=0.5.20
+
+# Embeddings
+sentence-transformers>=2.2.2
+
+# Utilities
+requests>=2.32.3
+python-dotenv>=1.0.1
+
+# WebSocket client (for ComfyUI)
+websocket-client>=1.6.0
+
+# Image processing (for ComfyUI)
+Pillow>=10.0.0
+
+# Python Socket.IO client (for testing)
+python-socketio>=5.10.0
