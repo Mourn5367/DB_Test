@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 # 설정 로드
 config = get_config()
 image_config = get_config("image_storage")
+comfyui_config = get_config("comfyui")
 
 # 이미지 저장 디렉토리 생성
 IMAGE_STORAGE_DIR = image_config["storage_directory"]
@@ -58,8 +59,12 @@ logger.info(f"📁 이미지 저장 디렉토리: {IMAGE_STORAGE_DIR}")
 
 # ComfyUI 매니저 초기화
 try:
-    logger.info("🔌 ComfyUI 연결 시도: http://192.168.24.189:8188")
-    comfy_manager = ComfyUIManager(server_url="http://192.168.24.189:8188")
+    comfyui_url = comfyui_config["server_url"]
+    logger.info(f"🔌 ComfyUI 연결 시도: {comfyui_url}")
+    comfy_manager = ComfyUIManager(
+        server_url=comfyui_url,
+        timeout=comfyui_config["timeout"]
+    )
 
     # 서버 연결 상태 확인
     if comfy_manager.is_available():
@@ -68,7 +73,7 @@ try:
     else:
         logger.error("❌ ComfyUI 서버에 접근할 수 없습니다")
         logger.error("   1. ComfyUI 서버가 실행 중인지 확인하세요")
-        logger.error("   2. 주소가 올바른지 확인하세요: http://192.168.24.189:8188")
+        logger.error(f"   2. 주소가 올바른지 확인하세요: {comfyui_url}")
         comfy_manager = None
 except Exception as e:
     logger.error(f"❌ ComfyUI 초기화 실패: {e}")
@@ -85,7 +90,7 @@ def generate_image_async(game_id: str, prompt: str):
 
     if not comfy_manager.is_available():
         logger.warning(f"[{game_id}] ComfyUI 서버에 연결할 수 없습니다")
-        logger.warning(f"   ComfyUI 서버 확인: http://192.168.24.189:8188/system_stats")
+        logger.warning(f"   ComfyUI 서버 확인: {comfyui_config['server_url']}/system_stats")
         return
 
     try:

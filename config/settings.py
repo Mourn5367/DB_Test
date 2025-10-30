@@ -6,12 +6,12 @@ from typing import Dict, Any
 
 # External API 설정
 EXTERNAL_API_CONFIG = {
-    "base_url": os.getenv("EXTERNAL_API_URL", "http://192.168.26.165:1024")
+    "base_url": os.getenv("EXTERNAL_API_URL", "http://3.35.188.224:1024")
 }
 
 # Ollama 설정
 OLLAMA_CONFIG = {
-    "base_url": os.getenv("OLLAMA_URL", "http://ollama.aikopo.net"),
+    "base_url": os.getenv("OLLAMA_URL", "http://13.209.173.228:11434"),
     "model": os.getenv("OLLAMA_MODEL", "gpt-oss:120b"),
     "temperature": 0.7,
     "timeout": 120
@@ -76,9 +76,16 @@ VECTOR_MEMORY_CONFIG = {
 # 이미지 저장 설정
 IMAGE_STORAGE_CONFIG = {
     "storage_directory": os.getenv("IMAGE_STORAGE_PATH", "./static/images"),
-    "base_url": os.getenv("IMAGE_BASE_URL", "http://192.168.26.165:5001/images"),
+    "base_url": os.getenv("IMAGE_BASE_URL", "http://3.35.188.224:5001/images"),
     "max_file_size_mb": 10,
     "allowed_formats": ["png", "jpg", "jpeg", "webp"]
+}
+
+# ComfyUI 서버 설정
+COMFYUI_CONFIG = {
+    "server_url": os.getenv("COMFYUI_URL", "http://13.209.173.228:8188"),
+    "timeout": int(os.getenv("COMFYUI_TIMEOUT", "300")),
+    "workflow_file": "lora.json"
 }
 
 def get_config(section: str = None) -> Dict[str, Any]:
@@ -93,7 +100,8 @@ def get_config(section: str = None) -> Dict[str, Any]:
         "game": GAME_CONFIG,
         "prompt": PROMPT_CONFIG,
         "vector_memory": VECTOR_MEMORY_CONFIG,
-        "image_storage": IMAGE_STORAGE_CONFIG
+        "image_storage": IMAGE_STORAGE_CONFIG,
+        "comfyui": COMFYUI_CONFIG
     }
 
     if section:

@@ -1,30 +1,21 @@
-# Core LangChain packages
-langchain>=0.3.7
-langchain-core>=0.3.15
-langchain-community>=0.3.5
-langchain-ollama>=0.2.0
-langchain-huggingface>=0.1.0
-
-# Web framework
-flask>=3.0.3
-flask-socketio>=5.3.6
-eventlet>=0.33.3
-
-# Vector Store
-chromadb>=0.5.20
-
-# Embeddings
-sentence-transformers>=2.2.2
-
-# Utilities
-requests>=2.32.3
-python-dotenv>=1.0.1
-
-# WebSocket client (for ComfyUI)
-websocket-client>=1.6.0
-
-# Image processing (for ComfyUI)
-Pillow>=10.0.0
-
-# Python Socket.IO client (for testing)
-python-socketio>=5.10.0
+chromadb==1.1.0
+eventlet==0.40.3
+flask-cors==6.0.1
+langchain==0.3.27
+langchain-community==0.3.29
+langchain-core==0.3.76
+langchain-huggingface==0.3.1
+langchain-ollama==0.3.8
+langchain-text-splitters==0.3.11
+Pillow==10.0.1
+python-dotenv==1.1.1
+python-socketio==5.8.0
+requests==2.32.5
+requests-oauthlib==2.0.0
+requests-toolbelt==1.0.0
+sentence-transformers==5.1.1
+simple-websocket==1.1.0
+websocket-client==1.6.3
+websockets==15.0.1
+Flask-SocketIO==5.3.6
+python-socketio==5.8.0

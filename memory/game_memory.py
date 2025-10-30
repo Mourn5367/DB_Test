@@ -7,7 +7,7 @@ from typing import Dict, List, Any, Optional
 from langchain.memory import ConversationSummaryBufferMemory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
-from langchain_ollama import OllamaLLM
+from langchain_community.llms import Ollama as OllamaLLM
 
 from config.settings import get_config
 

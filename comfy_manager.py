@@ -20,7 +20,7 @@ from PIL import Image
 class ComfyUIManager:
     """ComfyUI API 연동 매니저"""
     
-    def __init__(self, server_url: str = "http://192.168.24.189:8188", timeout: int = 300):
+    def __init__(self, server_url: str = "http://13.209.173.228:8188", timeout: int = 300):
         """
         ComfyUIManager 초기화
         

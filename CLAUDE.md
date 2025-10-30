@@ -22,10 +22,22 @@ python app.py
 
 `.env` 파일 생성:
 ```
+# Ollama LLM 설정
 OLLAMA_URL=http://ollama.aikopo.net
 OLLAMA_MODEL=gpt-oss:20b
+
+# 외부 게임/캐릭터 API
 EXTERNAL_API_URL=http://192.168.26.165:1024
+
+# 이미지 관련 설정
 IMAGE_BASE_URL=http://192.168.26.165:5001/images
+IMAGE_STORAGE_PATH=./static/images
+
+# ComfyUI 서버 설정
+COMFYUI_URL=http://192.168.24.189:8188
+COMFYUI_TIMEOUT=300
+
+# Flask 설정
 SECRET_KEY=your-secret-key
 DEBUG=True
 ```
@@ -217,11 +229,14 @@ socket.on('game_image', (data) => {
 ## 설정
 
 `config/settings.py`에 중앙화:
-- `EXTERNAL_API_CONFIG`: 외부 게임/캐릭터 API
-- `OLLAMA_CONFIG`: LLM 연결 (원격 Ollama 서버)
-- `CHROMA_CONFIG`: ChromaDB 영속화 디렉토리 (`./chroma_db/`)
+- `EXTERNAL_API_CONFIG`: 외부 게임/캐릭터 API (환경변수: `EXTERNAL_API_URL`)
+- `OLLAMA_CONFIG`: LLM 연결 (환경변수: `OLLAMA_URL`, `OLLAMA_MODEL`)
+- `CHROMA_CONFIG`: ChromaDB 영속화 디렉토리 (환경변수: `CHROMA_PATH`)
 - `VECTOR_MEMORY_CONFIG`: 임베딩 모델 (all-MiniLM-L6-v2), 검색 k=5
-- `IMAGE_STORAGE_CONFIG`: 이미지 저장 디렉토리 (`./static/images/`)
+- `IMAGE_STORAGE_CONFIG`: 이미지 저장 디렉토리 (환경변수: `IMAGE_BASE_URL`, `IMAGE_STORAGE_PATH`)
+- `COMFYUI_CONFIG`: ComfyUI 서버 주소 (환경변수: `COMFYUI_URL`, `COMFYUI_TIMEOUT`)
+
+**주소 변경 시**: `.env` 파일의 환경변수만 수정하면 자동 반영됩니다. 코드 수정 불필요.
 
 ## 개발 참고사항
 
@@ -254,3 +269,16 @@ socket.on('game_image', (data) => {
 - 사용자 입력과 AI 응답을 **개별 문서로 분리 저장**
 - 턴당 2개 문서 생성 (role="user", role="assistant")
 - 벡터 검색 시 맥락 유지를 위해 최근 대화는 원문 사용
+
+### 캐릭터 사망 처리
+- 체력이 0 이하가 되면 `_handle_character_death()` 호출
+- ChromaDB에서 전체 대화 히스토리 로드
+- LLM이 죽음의 원인과 캐릭터 여정 요약 생성
+- `game_over: true` 플래그와 함께 최종 메시지 반환
+- 선택지 없음 (`options: []`)
+
+### ChromaDB 데이터 초기화
+- `./chroma_db/` 폴더 삭제 시 모든 대화 내역 삭제됨
+- `chroma.sqlite3` 파일도 안전하게 삭제 가능
+- 서버 재시작 시 자동으로 재생성됨
+- 외부 API 데이터는 영향받지 않음
